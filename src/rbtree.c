@@ -19,6 +19,92 @@ struct rbtree {
     rb_value_free_fn value_free;
 };
 
+static bool is_red(const rb_node_t *node) {
+    return node != NULL && node->color == RB_RED;
+}
+
+static void rotate_left(rbtree_t *t, rb_node_t *x) {
+    rb_node_t *y = x->right;
+
+    x->right = y->left;
+    if (y->left != NULL) {
+        y->left->parent = x;
+    }
+
+    y->parent = x->parent;
+    if (x->parent == NULL) {
+        t->root = y;
+    } else if (x == x->parent->left) {
+        x->parent->left = y;
+    } else {
+        x->parent->right = y;
+    }
+
+    y->left = x;
+    x->parent = y;
+}
+
+static void rotate_right(rbtree_t *t, rb_node_t *x) {
+    rb_node_t *y = x->left;
+
+    x->left = y->right;
+    if (y->right != NULL) {
+        y->right->parent = x;
+    }
+
+    y->parent = x->parent;
+    if (x->parent == NULL) {
+        t->root = y;
+    } else if (x == x->parent->right) {
+        x->parent->right = y;
+    } else {
+        x->parent->left = y;
+    }
+
+    y->right = x;
+    x->parent = y;
+}
+
+static void insert_fixup(rbtree_t *t, rb_node_t *z) {
+    while (is_red(z->parent)) {    /* invariant: z is red; loop only continues while a red-red violation exists */
+        if (z->parent == z->parent->parent->left) {
+            rb_node_t *uncle = z->parent->parent->right;
+            if (is_red(uncle)) {
+                z->parent->color = RB_BLACK;
+                uncle->color = RB_BLACK;
+                z->parent->parent->color = RB_RED;
+                z = z->parent->parent;
+            } else {
+                if (z == z->parent->right) {
+                    z = z->parent;
+                    rotate_left(t, z);
+                }
+                z->parent->color = RB_BLACK;
+                z->parent->parent->color = RB_RED;
+                rotate_right(t, z->parent->parent);
+            }
+        } else {
+            rb_node_t *uncle = z->parent->parent->left;
+            if (is_red(uncle)) {
+                z->parent->color = RB_BLACK;
+                uncle->color = RB_BLACK;
+                z->parent->parent->color = RB_RED;
+                z = z->parent->parent;
+            } else {
+                if (z == z->parent->left) {
+                    z = z->parent;
+                    rotate_right(t, z);
+                }
+                z->parent->color = RB_BLACK;
+                z->parent->parent->color = RB_RED;
+                rotate_left(t, z->parent->parent);
+            }
+        }
+    }
+
+    t->root->color = RB_BLACK;
+}
+
 rbtree_t *rb_create(rb_value_free_fn value_free) {
     rbtree_t *t = malloc(sizeof(*t));
     if (t == NULL) {
@@ -80,6 +166,8 @@ int rb_insert(rbtree_t *t, const char *key, void *value) {
         parent->right = node;
     }
 
+    insert_fixup(t, node);
+
     t->size++;
     return 0;
 
@@ -103,8 +191,21 @@ void *rb_find(const rbtree_t *t, const char *key) {
     return NULL;
 }
 
-static bool is_red(const rb_node_t *node) {
-    return node != NULL && node->color == RB_RED;
+static void foreach_node(const rb_node_t *node,
+                          void (*fn)(const char *key, void *value, void *ctx),
+                          void *ctx) {
+    if (node == NULL) {
+        return;
+    }
+    foreach_node(node->left, fn, ctx);
+    fn(node->key, node->value, ctx);
+    foreach_node(node->right, fn, ctx);
+}
+
+void rb_foreach(const rbtree_t *t,
+                void (*fn)(const char *key, void *value, void *ctx),
+                void *ctx) {
+    foreach_node(t->root, fn, ctx);
 }
 
 static int check_black_height(const rb_node_t *node) {

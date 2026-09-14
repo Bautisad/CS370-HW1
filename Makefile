@@ -19,7 +19,7 @@ memcheck: clean all
 	valgrind --leak-check=full --show-leak-kinds=all \
 	--error-exitcode=1 ./$(BIN)
 	valgrind --leak-check=full --show-leak-kinds=all \
-	--error-exitcode=1 ./$(FUZZBIN) 20000
+	--error-exitcode=1 ./$(FUZZBIN) 100000
 clean:
 	rm -rf build
 .PHONY: all test asan memcheck clean

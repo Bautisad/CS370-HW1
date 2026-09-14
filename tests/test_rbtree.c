@@ -1,5 +1,6 @@
 #include "rbtree.h"
 #include <stdio.h>
+#include <string.h>
 
 static int checks_run = 0;
 static int checks_failed = 0;
@@ -34,6 +35,67 @@ static void check_root_rotation(const char *label,
     printf("checked: %s\n", label);
 }
 
+/* Every insertion sequence below was hand-traced against the CLRS-style
+ * insert_fixup in src/rbtree.c to pin down the exact color/shape rb_delete
+ * will see at the target key, so each row exercises one specific
+ * delete-fixup situation rather than whatever a random sequence happens
+ * to produce. */
+typedef struct {
+    const char *label;
+    const char *insert_keys[7]; /* insertion order, NULL-terminated */
+    const char *delete_key;
+} delete_case_t;
+
+static int dummy_value;
+
+static const delete_case_t delete_cases[] = {
+    { "red leaf (left child)",
+      { "b", "a", "c", NULL }, "a" },
+    { "red leaf (right child), mirror",
+      { "b", "a", "c", NULL }, "c" },
+    { "black leaf with red sibling (sibling on the right)",
+      { "a", "b", "c", "d", "e", "f", NULL }, "a" },
+    { "black leaf with red sibling (sibling on the left), mirror",
+      { "f", "e", "d", "c", "b", "a", NULL }, "f" },
+    { "node with two children",
+      { "a", "b", "c", "d", "e", "f", NULL }, "d" },
+    { "node with two children, mirror",
+      { "f", "e", "d", "c", "b", "a", NULL }, "c" },
+    { "root deletion (single-node tree)",
+      { "m", NULL }, "m" },
+    { "black node with exactly one red child (child on the right)",
+      { "b", "a", "d", "f", NULL }, "d" },
+    { "black node with exactly one red child (child on the left), mirror",
+      { "e", "f", "c", "a", NULL }, "c" },
+};
+
+static void run_delete_case(const delete_case_t *tc) {
+    rbtree_t *t = rb_create(NULL);
+    CHECK(t != NULL);
+
+    size_t n = 0;
+    for (size_t i = 0; tc->insert_keys[i] != NULL; i++) {      /* invariant: n keys inserted so far */
+        CHECK(rb_insert(t, tc->insert_keys[i], &dummy_value) == 0);
+        n++;
+    }
+    CHECK(rb_validate(t) == 0);
+    CHECK(rb_size(t) == n);
+
+    CHECK(rb_delete(t, tc->delete_key) == 0);
+
+    CHECK(rb_validate(t) == 0);
+    CHECK(rb_size(t) == n - 1);
+    CHECK(rb_find(t, tc->delete_key) == NULL);
+    for (size_t i = 0; tc->insert_keys[i] != NULL; i++) {      /* invariant: every surviving key still resolves */
+        if (strcmp(tc->insert_keys[i], tc->delete_key) != 0) {
+            CHECK(rb_find(t, tc->insert_keys[i]) == &dummy_value);
+        }
+    }
+
+    rb_destroy(t);
+    printf("checked: %s\n", tc->label);
+}
+
 int main(void) {
     check_root_rotation("line, left branch (rotate_right at root)",
                          "c", &val_c, "b", &val_b, "a", &val_a);
@@ -43,6 +105,11 @@ int main(void) {
                          "c", &val_c, "a", &val_a, "b", &val_b);
     check_root_rotation("triangle, mirror (rotate_right then rotate_left at root)",
                          "a", &val_a, "c", &val_c, "b", &val_b);
+
+    size_t n_delete_cases = sizeof(delete_cases) / sizeof(delete_cases[0]);
+    for (size_t i = 0; i < n_delete_cases; i++) {      /* invariant: cases [0,i) already run */
+        run_delete_case(&delete_cases[i]);
+    }
 
     if (checks_failed == 0) {
         printf("PASS: %d checks run, 0 failed\n", checks_run);

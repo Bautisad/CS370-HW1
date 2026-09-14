@@ -191,6 +191,164 @@ void *rb_find(const rbtree_t *t, const char *key) {
     return NULL;
 }
 
+static rb_node_t *find_node(const rbtree_t *t, const char *key) {
+    rb_node_t *current = t->root;
+
+    while (current != NULL) {      /* invariant: current is the next node to compare against */
+        int cmp = strcmp(key, current->key);
+        if (cmp == 0) {
+            return current;
+        }
+        current = (cmp < 0) ? current->left : current->right;
+    }
+
+    return NULL;
+}
+
+static rb_node_t *minimum(rb_node_t *node) {
+    while (node->left != NULL) {   /* invariant: node is a lower bound on all keys seen so far */
+        node = node->left;
+    }
+    return node;
+}
+
+static void transplant(rbtree_t *t, rb_node_t *u, rb_node_t *v) {
+    if (u->parent == NULL) {
+        t->root = v;
+    } else if (u == u->parent->left) {
+        u->parent->left = v;
+    } else {
+        u->parent->right = v;
+    }
+    if (v != NULL) {
+        v->parent = u->parent;
+    }
+}
+
+static void delete_fixup(rbtree_t *t, rb_node_t *x, rb_node_t *x_parent) {
+    while (x != t->root && !is_red(x)) {   /* invariant: x is doubly-black; x_parent is x's real parent, valid even when x == NULL */
+        if (x == x_parent->left) {
+            rb_node_t *w = x_parent->right;
+            if (is_red(w)) {
+                w->color = RB_BLACK;
+                x_parent->color = RB_RED;
+                rotate_left(t, x_parent);
+                w = x_parent->right;
+            }
+            if (!is_red(w->left) && !is_red(w->right)) {
+                w->color = RB_RED;
+                x = x_parent;
+                x_parent = x->parent;
+            } else {
+                if (!is_red(w->right)) {
+                    if (w->left != NULL) {
+                        w->left->color = RB_BLACK;
+                    }
+                    w->color = RB_RED;
+                    rotate_right(t, w);
+                    w = x_parent->right;
+                }
+                w->color = x_parent->color;
+                x_parent->color = RB_BLACK;
+                if (w->right != NULL) {
+                    w->right->color = RB_BLACK;
+                }
+                rotate_left(t, x_parent);
+                x = t->root;
+                x_parent = NULL;
+            }
+        } else {
+            rb_node_t *w = x_parent->left;
+            if (is_red(w)) {
+                w->color = RB_BLACK;
+                x_parent->color = RB_RED;
+                rotate_right(t, x_parent);
+                w = x_parent->left;
+            }
+            if (!is_red(w->right) && !is_red(w->left)) {
+                w->color = RB_RED;
+                x = x_parent;
+                x_parent = x->parent;
+            } else {
+                if (!is_red(w->left)) {
+                    if (w->right != NULL) {
+                        w->right->color = RB_BLACK;
+                    }
+                    w->color = RB_RED;
+                    rotate_left(t, w);
+                    w = x_parent->left;
+                }
+                w->color = x_parent->color;
+                x_parent->color = RB_BLACK;
+                if (w->left != NULL) {
+                    w->left->color = RB_BLACK;
+                }
+                rotate_right(t, x_parent);
+                x = t->root;
+                x_parent = NULL;
+            }
+        }
+    }
+
+    if (x != NULL) {
+        x->color = RB_BLACK;
+    }
+}
+
+int rb_delete(rbtree_t *t, const char *key) {
+    rb_node_t *z = find_node(t, key);
+    if (z == NULL) {
+        return -1;
+    }
+
+    rb_node_t *y = z;
+    rb_color_t y_original_color = y->color;
+    rb_node_t *x;
+    rb_node_t *x_parent;
+
+    if (z->left == NULL) {
+        x = z->right;
+        x_parent = z->parent;
+        transplant(t, z, z->right);
+    } else if (z->right == NULL) {
+        x = z->left;
+        x_parent = z->parent;
+        transplant(t, z, z->left);
+    } else {
+        y = minimum(z->right);
+        y_original_color = y->color;
+        x = y->right;
+        if (y->parent == z) {
+            x_parent = y;
+        } else {
+            x_parent = y->parent;
+            transplant(t, y, y->right);
+            y->right = z->right;
+            y->right->parent = y;
+        }
+        transplant(t, z, y);
+        y->left = z->left;
+        y->left->parent = y;
+        y->color = z->color;
+    }
+
+    if (y_original_color == RB_BLACK) {
+        delete_fixup(t, x, x_parent);
+    }
+
+    free(z->key);
+    if (t->value_free != NULL) {
+        t->value_free(z->value);
+    }
+    free(z);
+    t->size--;
+    return 0;
+}
+
+size_t rb_size(const rbtree_t *t) {
+    return t->size;
+}
+
 static void foreach_node(const rb_node_t *node,
                           void (*fn)(const char *key, void *value, void *ctx),
                           void *ctx) {

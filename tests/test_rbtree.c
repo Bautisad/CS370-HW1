@@ -1,5 +1,6 @@
 #include "rbtree.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int checks_run = 0;
@@ -96,6 +97,44 @@ static void run_delete_case(const delete_case_t *tc) {
     printf("checked: %s\n", tc->label);
 }
 
+static void check_destroy_empty_and_null(void) {
+    rbtree_t *t = rb_create(NULL);
+    CHECK(t != NULL);
+    CHECK(rb_size(t) == 0);
+    rb_destroy(t);
+
+    rb_destroy(NULL);   /* NULL-safe per the header contract */
+
+    printf("checked: destroy empty tree and NULL tree\n");
+}
+
+static int destroyed_count = 0;
+
+static void counting_free(void *value) {
+    destroyed_count++;
+    free(value);
+}
+
+static void check_destroy_frees_values(void) {
+    rbtree_t *t = rb_create(counting_free);
+    CHECK(t != NULL);
+
+    const char *keys[] = { "x", "y", "z" };
+    size_t n = sizeof(keys) / sizeof(keys[0]);
+    for (size_t i = 0; i < n; i++) {      /* invariant: i values inserted so far, none yet deleted */
+        int *value = malloc(sizeof(int));
+        CHECK(value != NULL);
+        *value = (int)i;
+        CHECK(rb_insert(t, keys[i], value) == 0);
+    }
+
+    destroyed_count = 0;
+    rb_destroy(t);
+    CHECK(destroyed_count == (int)n);
+
+    printf("checked: destroy calls value_free exactly once per remaining value\n");
+}
+
 int main(void) {
     check_root_rotation("line, left branch (rotate_right at root)",
                          "c", &val_c, "b", &val_b, "a", &val_a);
@@ -110,6 +149,9 @@ int main(void) {
     for (size_t i = 0; i < n_delete_cases; i++) {      /* invariant: cases [0,i) already run */
         run_delete_case(&delete_cases[i]);
     }
+
+    check_destroy_empty_and_null();
+    check_destroy_frees_values();
 
     if (checks_failed == 0) {
         printf("PASS: %d checks run, 0 failed\n", checks_run);
